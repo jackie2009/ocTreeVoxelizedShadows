@@ -1,0 +1,54 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> shadowmap;
+RWStructuredBuffer<int3> shadowResultBuffer;
+RWStructuredBuffer<int> bufferCount;
+RWStructuredBuffer<float4> colorBuffer;
+float4x4 localToWorldMatrix;
+float4x4 MatrixVP;
+float4x4 MatrixV;
+int unitsPerMeter;
+int loopOffset;
+int rtSize;
+bool useLightSpace;
+[numthreads(8,8,8)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	
+	int x = id.x;
+	int y = id.y;
+	int z = id.z+ loopOffset;
+	float3 wpos;
+	if(useLightSpace)
+	wpos= mul(localToWorldMatrix, float4(x - 60 * unitsPerMeter, y - 60 * unitsPerMeter, z, unitsPerMeter) / unitsPerMeter);
+	else
+	wpos =  float3(x , y , z)/ unitsPerMeter;
+
+	 if (wpos.x < 0 || wpos.x > 100) return;
+	 if (wpos.z <0 || wpos.z > 100) return;
+ if (wpos.y < 0  ) return;
+
+	float3 depthUV = mul(MatrixVP,float4(wpos,1));
+	depthUV = (depthUV + float3(1, 1, 0)) / 2;
+	if (depthUV.x < 0 || depthUV.x >= 1) return;
+	if (depthUV.y < 0 || depthUV.y >= 1) return;
+
+
+	depthUV *= rtSize;
+	 int colIndex = ((int)depthUV.y) * rtSize + ((int)depthUV.x);
+	 if (colIndex < 0 || colIndex >= rtSize * rtSize) return;
+	 float smDis = colorBuffer[colIndex].r;// shadowmap[uint2((uint)depthUV.x, (uint)depthUV.y)].x;
+	float itemDis = -mul(MatrixV,float4(wpos,1)).z;
+	if (smDis <= 2) return;
+
+	bool inShadow = itemDis > smDis + 0.3f;
+	if (inShadow) {
+		int currentIndex;
+		InterlockedAdd(bufferCount[0], 1, currentIndex);
+		shadowResultBuffer[currentIndex] = id+int3(0,0, loopOffset);
+	}
+ 
+}
